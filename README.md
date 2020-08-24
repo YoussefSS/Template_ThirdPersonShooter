@@ -1,3 +1,4 @@
+
 # Template: Third Person Shooter
 3rd person shooter (TPP) template with animations (public assets)
 
@@ -35,7 +36,9 @@ Initial commit includes full third person animation for a character with no weap
 18th commit in Eliminated
 [Link to commit in Eliminated](https://github.com/YoussefSS/Eliminated/commit/1b28fc0863ac5e9e3eb7c074842767533dfc1719)
 
-Crouching, full movement control over aiming down sights, as well as a weapon base class
+Crouching, full movement control over aiming down sights, as well as a weapon base class\
+Note: Use V3 even if you need just pistol, as it has a lot of fixes around reloading
+
 ###### Features
 
  - Crouching
@@ -45,3 +48,17 @@ Crouching, full movement control over aiming down sights, as well as a weapon ba
  - Weapon base class with lots of customizable variables that should work with all hitscan weapons
  - Weapon effects (muzzle + impact + trail + sound + bullet decal, etc..) 
  - Crosshair and ammo HUD
+
+---
+
+### (V3) Assault Rifle and two weapons update
+
+[Link to V3 commit](https://github.com/UE4-YSF/Template_ThirdPersonShooter/commit/606203ba79949dcb1d1cf0227877d57559630ac3)
+
+###### Features
+
+ - Assault Rifle weapon with full animations + reloading
+ - Switch back and forth between pistol and rifle
+ - Added a bool (to be removed based on the need of the game) that keeps the weapon visible even while not aiming down sights
+ - Fixing a lot of bugs with reloading, use this instead of V2
+- Easily switch between weapons by setting the `int32 CurrentSelectedWeaponSlot`, then calling `ChangeCurrentWeaponToSelectedWeapon()`
