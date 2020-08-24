@@ -56,6 +56,12 @@ void APlayerCharacter::BeginPlay()
 	{
 		CameraBoom->TargetArmLength = SpringArmDistance_Regular;
 	}
+
+	CurrentSelectedWeaponSlot = 1;
+	if (bKeepHoldingWeaponWhileNotAiming)
+	{
+		ChangeCurrentWeaponToSelectedWeapon(false);
+	}
 }
 
 void APlayerCharacter::MousePitchInput(float Val)
@@ -88,7 +94,7 @@ void APlayerCharacter::Jump()
 
 void APlayerCharacter::StartSprint()
 {
-	if (bIsCrouched)
+	if (bIsCrouching)
 	{
 		StopCrouch();
 	}
@@ -102,7 +108,7 @@ void APlayerCharacter::StopSprint()
 
 void APlayerCharacter::ToggleCrouch()
 {
-	if (!bIsCrouched)
+	if (!bIsCrouching)
 	{
 		StartCrouch();
 	}
@@ -116,7 +122,7 @@ void APlayerCharacter::StartCrouch()
 {
 	StopSprint();
 	Super::Crouch();
-	bIsCrouched = true;
+	bIsCrouching = true;
 
 	// Adjusting camera boom height so that the camera doesn't jitter when crouching and the capsule half size decreases
 	if (CameraBoom)
@@ -128,7 +134,7 @@ void APlayerCharacter::StartCrouch()
 void APlayerCharacter::StopCrouch()
 {
 	Super::UnCrouch();
-	bIsCrouched = false;
+	bIsCrouching = false;
 
 	// Adjusting camera boom height so that the camera doesn't jitter when crouching and the capsule half size inscreases
 	if (CameraBoom)
@@ -141,11 +147,23 @@ void APlayerCharacter::StartAimDownSights() // Implementation for C++ method (ca
 {
 	// Start the BP timeline event
 	StartAimDownSights_Event(); 
-
-
-	PlayerStatus = EPlayerStatus::EMS_DownSightsPistol;
 	bIsAimingDownSights = true;
-	EnablePistol();
+
+	// Enable weapon and select it and update animations
+	if (CurrentSelectedWeaponSlot == 1)
+	{
+		PlayerStatus = EPlayerStatus::EMS_DownSightsRifle;
+	}
+	else
+	{
+		PlayerStatus = EPlayerStatus::EMS_DownSightsPistol;
+	}
+
+	if (!bKeepHoldingWeaponWhileNotAiming)
+	{
+		ChangeCurrentWeaponToSelectedWeapon();
+	}
+	
 
 	// Setting the player to look at the camera
 	bUseControllerRotationYaw = true;
@@ -163,9 +181,15 @@ void APlayerCharacter::StopAimDownSights()
 {
 	StopAimDownSights_Event();
 
-	PlayerStatus = EPlayerStatus::EMS_NoWeapon;
-	bIsAimingDownSights = false;
-	DisableCurrentWeapon();
+	// If not reloading then return to normal animation state, if reloading it will be handled by OnEndReload
+	if (!bIsReloading)
+	{
+		PlayerStatus = EPlayerStatus::EMS_NoWeapon;
+		if (!bKeepHoldingWeaponWhileNotAiming)
+		{
+			DisableCurrentWeapon();
+		}
+	}
 
 	// Setting the player to run freely without looking at the camera
 	bUseControllerRotationYaw = false;
@@ -177,11 +201,12 @@ void APlayerCharacter::StopAimDownSights()
 	{
 		PC->HideCrossHair();
 	}
+	bIsAimingDownSights = false;
 }
 
 void APlayerCharacter::StartFire()
 {
-	if (CurrentWeapon)
+	if (CurrentWeapon && bIsAimingDownSights)
 	{
 		CurrentWeapon->StartFire();
 	}
@@ -198,11 +223,49 @@ void APlayerCharacter::StopFire()
 void APlayerCharacter::TryReload()
 {
 	if (!CurrentWeapon) return;
+	if (!bIsAimingDownSights) return;
 
 	if (CurrentWeapon->CanReload())
 	{
 		DoReload();
 	}
+}
+
+void APlayerCharacter::SelectWeaponOne()
+{
+	CurrentSelectedWeaponSlot = 1;
+
+	// Use if bIsAimingDownSights if you don't want to hold a weapon while not aiming
+	ChangeCurrentWeaponToSelectedWeapon(bIsAimingDownSights);
+}
+
+void APlayerCharacter::SelectWeaponTwo()
+{
+	CurrentSelectedWeaponSlot = 2;
+
+	ChangeCurrentWeaponToSelectedWeapon(bIsAimingDownSights);
+}
+
+void APlayerCharacter::SelectNextWeapon()
+{
+	CurrentSelectedWeaponSlot++;
+	if (CurrentSelectedWeaponSlot >= MaxNumberOfWeaponSlots + 1)
+	{
+		CurrentSelectedWeaponSlot = 1;
+	}
+
+	ChangeCurrentWeaponToSelectedWeapon(bIsAimingDownSights);
+}
+
+void APlayerCharacter::SelectPreviousWeapon()
+{
+	CurrentSelectedWeaponSlot--;
+	if (CurrentSelectedWeaponSlot <= 0)
+	{
+		CurrentSelectedWeaponSlot = MaxNumberOfWeaponSlots;
+	}
+
+	ChangeCurrentWeaponToSelectedWeapon(bIsAimingDownSights);
 }
 
 void APlayerCharacter::DoReload()
@@ -214,10 +277,18 @@ void APlayerCharacter::DoReload()
 
 	// Playing reload animation
 	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
-	if (AnimInstance && PistolMontage)
+	if (AnimInstance)
 	{
-		AnimInstance->Montage_Play(PistolMontage, .8f);
-		AnimInstance->Montage_JumpToSection(FName("Reload"), PistolMontage);
+		if (PlayerStatus == EPlayerStatus::EMS_DownSightsPistol && PistolMontage)
+		{
+			AnimInstance->Montage_Play(PistolMontage, .8f);
+			AnimInstance->Montage_JumpToSection(FName("Reload"), PistolMontage);
+		}
+		else if (PlayerStatus == EPlayerStatus::EMS_DownSightsRifle && RifleMontage)
+		{
+			AnimInstance->Montage_Play(RifleMontage, 1.2f);
+			AnimInstance->Montage_JumpToSection(FName("Reload"), RifleMontage);
+		}
 	}
 }
 
@@ -227,6 +298,16 @@ void APlayerCharacter::OnEndReload() /** Called when the reload animation ends f
 	if (!CurrentWeapon) return;
 
 	CurrentWeapon->EndReload();
+
+	// If not aiming down sights, return to no weapon animations
+	if (!bIsAimingDownSights)
+	{
+		PlayerStatus = EPlayerStatus::EMS_NoWeapon;
+		if (!bKeepHoldingWeaponWhileNotAiming)
+		{
+			DisableCurrentWeapon();
+		}
+	}
 }
 
 void APlayerCharacter::OnWeaponAmmoChanged(int32 NewCurrentAmmo, int32 NewCurrentClipAmmo)
@@ -260,14 +341,25 @@ void APlayerCharacter::OnShotFired()
 
 	// Recoil
 	AddControllerPitchInput(-CurrentWeapon->GetRecoilAmount());
+	AddControllerYawInput(FMath::FRandRange(-CurrentWeapon->GetRecoilAmount(), CurrentWeapon->GetRecoilAmount()));
+	//AddControllerPitchInput(0);
 
 	// Play animation
 	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
-	if (AnimInstance && PistolMontage)
+	if (AnimInstance)
 	{
-		AnimInstance->Montage_Play(PistolMontage, 1.2f);
-		AnimInstance->Montage_JumpToSection(FName("Fire"), PistolMontage);
+		if (PlayerStatus == EPlayerStatus::EMS_DownSightsPistol && PistolMontage)
+		{
+			AnimInstance->Montage_Play(PistolMontage, 1.2f);
+			AnimInstance->Montage_JumpToSection(FName("Fire"), PistolMontage);
+		}
+		else if (PlayerStatus == EPlayerStatus::EMS_DownSightsRifle && RifleMontage)
+		{
+			AnimInstance->Montage_Play(RifleMontage, 1.f);
+			AnimInstance->Montage_JumpToSection(FName("Fire"), RifleMontage);
+		}
 	}
+
 
 	// Cam shake
 	APlayerCharacterController* PC = Cast<APlayerCharacterController>(GetController());
@@ -314,6 +406,7 @@ void APlayerCharacter::UpdateMovementAxisInput()
 		SprintMultiplier = SprintMultiplier_NoWeapon;
 		break;
 	case EPlayerStatus::EMS_DownSightsPistol:
+	case EPlayerStatus::EMS_DownSightsRifle:
 		WalkMultiplier = WalkMultiplier_AimDownSight;
 		SprintMultiplier = SprintMultiplier_AimDownSight;
 		break;
@@ -327,7 +420,7 @@ void APlayerCharacter::UpdateMovementAxisInput()
 
 	}
 
-	if (bIsCrouched)
+	if (bIsCrouching)
 	{
 		WalkMultiplier = WalkMultiplier_Crouched;
 	}
@@ -385,6 +478,12 @@ void APlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 	PlayerInputComponent->BindAction("ToggleCrouch", EInputEvent::IE_Pressed, this, &APlayerCharacter::ToggleCrouch);
 
 	PlayerInputComponent->BindAction("Reload", EInputEvent::IE_Pressed, this, &APlayerCharacter::TryReload);
+
+	PlayerInputComponent->BindAction("SelectWeapon1", EInputEvent::IE_Pressed, this, &APlayerCharacter::SelectWeaponOne);
+	PlayerInputComponent->BindAction("SelectWeapon2", EInputEvent::IE_Pressed, this, &APlayerCharacter::SelectWeaponTwo);
+
+	PlayerInputComponent->BindAction("NextWeapon", EInputEvent::IE_Pressed, this, &APlayerCharacter::SelectNextWeapon);
+	PlayerInputComponent->BindAction("PreviousWeapon", EInputEvent::IE_Pressed, this, &APlayerCharacter::SelectPreviousWeapon);
 }
 
 FVector APlayerCharacter::GetPawnViewLocation() const
@@ -397,12 +496,39 @@ FVector APlayerCharacter::GetPawnViewLocation() const
 	return Super::GetPawnViewLocation();
 }
 
+void APlayerCharacter::ChangeCurrentWeaponToSelectedWeapon(bool bSetPlayerStatus)
+{
+	DisableCurrentWeapon();
+
+	if (CurrentSelectedWeaponSlot == 1)
+	{
+		EnableRifle();
+
+		if(bSetPlayerStatus) PlayerStatus = EPlayerStatus::EMS_DownSightsRifle;
+	}
+
+	if (CurrentSelectedWeaponSlot == 2)
+	{
+		EnablePistol();
+		
+		if(bSetPlayerStatus) PlayerStatus = EPlayerStatus::EMS_DownSightsPistol;
+	}
+
+	// Update HUD
+	if (CurrentWeapon)
+	{
+		OnWeaponAmmoChanged(CurrentWeapon->GetCurrentAmmoCount(), CurrentWeapon->GetCurrentClipAmmoCount());
+	}
+}
+
 void APlayerCharacter::DisableCurrentWeapon()
 {
 	if (CurrentWeapon)
 	{
 		CurrentWeapon->DisableWeapon();
 	}
+	PlayerStatus = EPlayerStatus::EMS_NoWeapon;
+	bIsReloading = false;
 	CurrentWeapon = nullptr;
 }
 
@@ -427,5 +553,29 @@ void APlayerCharacter::EnablePistol()
 		}
 
 		EnablePistol();
+	}
+}
+
+void APlayerCharacter::EnableRifle()
+{
+	if (Rifle)
+	{
+		CurrentWeapon = Rifle;
+		Rifle->EnableWeapon();
+	}
+	else
+	{
+		Rifle = GetWorld()->SpawnActor<AWeapon>(RifleClass, FVector::ZeroVector, FRotator::ZeroRotator);
+		if (Rifle)
+		{
+			Rifle->AttachToComponent(GetMesh(), FAttachmentTransformRules::SnapToTargetIncludingScale, RifleAttachSocketName);
+			Rifle->SetOwner(this);
+			Rifle->OnWeaponAmmoChanged.AddDynamic(this, &APlayerCharacter::OnWeaponAmmoChanged);
+			OnWeaponAmmoChanged(Rifle->GetCurrentAmmoCount(), Rifle->GetCurrentClipAmmoCount()); // Calling it now to update the ammo hud counter
+
+			Rifle->OnShotFired.AddDynamic(this, &APlayerCharacter::OnShotFired);
+		}
+
+		EnableRifle();
 	}
 }

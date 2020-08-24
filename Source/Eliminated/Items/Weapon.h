@@ -62,14 +62,14 @@ public:
 protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weapon| Visual Effects")
-	FVector DecalSize;
+	FVector DecalSize = FVector(7,7,7);
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weapon| Visual Effects")
-	float DecalLifeSpan;
+	float DecalLifeSpan = 5.f;
 
 	/** The smaller the number the bigger the render distance, 0-0.001 will render from far */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weapon| Visual Effects")
-	float DecalFadeScreenSize;
+	float DecalFadeScreenSize = 0.f;
 
 	UPROPERTY(EditDefaultsOnly, Category = "Weapon| Visual Effects")
 	FName MuzzleFlashSocketName = "MuzzleFlash";
